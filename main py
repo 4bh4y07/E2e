@@ -1,0 +1,83 @@
+import asyncio
+import json
+import os
+import sys
+from playwright.async_api import async_playwright
+from playwright.__main__ import main as playwright_main  # ✅ correct install method
+
+# === AUTO INSTALL PLAYWRIGHT BROWSERS ===
+def install_browsers():
+    try:
+        sys.argv = ["playwright", "install", "chromium"]
+        playwright_main()
+    except Exception as e:
+        print(f"[!] Browser installation failed: {e}")
+
+# === CONFIGURATION ===
+COOKIES_FILE = "cookies.json"
+CHAT_URL = "https://www.facebook.com/messages/e2ee/t/24857890337132480/"
+HATER_NAME = "<3"
+MESSAGE_FILE = "messages.txt"
+DELAY = 10  # seconds between messages
+
+def sanitize_cookies(cookies):
+    valid_same_site = {"Strict", "Lax", "None"}
+    for cookie in cookies:
+        same_site = cookie.get("sameSite")
+        if same_site:
+            cookie["sameSite"] = same_site.capitalize()
+            if cookie["sameSite"] not in valid_same_site:
+                cookie["sameSite"] = "Lax"
+        else:
+            cookie["sameSite"] = "Lax"
+    return cookies
+
+async def send_messages():
+    # Load cookies
+    try:
+        with open(COOKIES_FILE, "r", encoding="utf-8") as f:
+            cookies = sanitize_cookies(json.load(f))
+    except Exception as e:
+        print(f"[!] Failed to load cookies: {e}")
+        return
+
+    # Load messages
+    try:
+        with open(MESSAGE_FILE, "r", encoding="utf-8") as f:
+            messages = [line.strip() for line in f if line.strip()]
+    except Exception as e:
+        print(f"[!] Failed to load message file: {e}")
+        return
+
+    # Start Playwright
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        context = await browser.new_context()
+        await context.add_cookies(cookies)
+
+        page = await context.new_page()
+        print("[*] Opening chat...")
+        await page.goto(CHAT_URL)
+        await page.wait_for_timeout(5000)
+
+        print("[*] Sending messages... Press Ctrl+C to stop.")
+        try:
+            while True:
+                for msg in messages:
+                    full_message = f"{HATER_NAME}: {msg}"
+                    try:
+                        await page.wait_for_selector('div[aria-label="Message"]', timeout=10000)
+                        await page.fill('div[aria-label="Message"]', full_message)
+                        await page.keyboard.press('Enter')
+                        print(f"[+] Sent: {full_message}")
+                        await asyncio.sleep(DELAY)
+                    except Exception as e:
+                        print(f"[!] Failed to send message: {e}")
+        except KeyboardInterrupt:
+            print("\n[*] Script stopped by user.")
+        finally:
+            await browser.close()
+
+if __name__ == "__main__":
+    install_browsers()
+    asyncio.run(send_messages())
